@@ -1,25 +1,67 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { basename } from "@tauri-apps/api/path";
 import { open } from "@tauri-apps/plugin-dialog";
+import { scanMediaFiles } from "./lib/mediaScanner";
 import { useProjectStore } from "./store/useProjectStore";
 import type { Project } from "./types";
 import "./App.css";
+
+type ProjectScanState =
+  | { projectId: string; status: "scanning" }
+  | { projectId: string; status: "complete"; fileCount: number }
+  | { projectId: string; status: "error"; message: string };
 
 function App() {
   const projects = useProjectStore((state) => state.projects);
   const activeProjectId = useProjectStore((state) => state.activeProjectId);
   const createProject = useProjectStore((state) => state.createProject);
   const setActiveProject = useProjectStore((state) => state.setActiveProject);
+  const updateProjectTotalFiles = useProjectStore(
+    (state) => state.updateProjectTotalFiles,
+  );
   const [isCreating, setIsCreating] = useState(false);
+  const [isAuthorizing, setIsAuthorizing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [openedProjectId, setOpenedProjectId] = useState<string | null>(null);
+  const [scanState, setScanState] = useState<ProjectScanState | null>(null);
+  const scanSequence = useRef(0);
 
   const openedProject = projects.find(
     (project) => project.id === openedProjectId,
   );
+  const openedProjectScan =
+    openedProject && scanState?.projectId === openedProject.id
+      ? scanState
+      : null;
   const recentProjects = [...projects].sort(
     (first, second) => second.lastAccessed - first.lastAccessed,
   );
+
+  async function scanProject(project: Project): Promise<void> {
+    const sequence = ++scanSequence.current;
+    setScanState({ projectId: project.id, status: "scanning" });
+
+    try {
+      const mediaPaths = await scanMediaFiles(project.targetFolder);
+      if (sequence !== scanSequence.current) {
+        return;
+      }
+
+      updateProjectTotalFiles(project.id, mediaPaths.length);
+      setScanState({
+        projectId: project.id,
+        status: "complete",
+        fileCount: mediaPaths.length,
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "An unexpected error occurred.";
+      console.error(`Failed to scan project "${project.name}".`, error);
+      if (sequence === scanSequence.current) {
+        setScanState({ projectId: project.id, status: "error", message });
+      }
+    }
+  }
 
   async function handleCreateProject() {
     setError(null);
@@ -53,6 +95,7 @@ function App() {
 
       createProject(project);
       setOpenedProjectId(project.id);
+      void scanProject(project);
     } catch (error) {
       console.error("Failed to create a SwipeClean project.", error);
       setError(
@@ -66,6 +109,39 @@ function App() {
   function handleOpenProject(project: Project) {
     setActiveProject(project.id);
     setOpenedProjectId(project.id);
+    void scanProject(project);
+  }
+
+  async function handleRestoreFolderAccess(project: Project) {
+    setIsAuthorizing(true);
+    try {
+      const selectedPath = await open({
+        title: "Restore access to this project folder",
+        defaultPath: project.targetFolder,
+        directory: true,
+        multiple: false,
+        recursive: true,
+      });
+      const folderPath = Array.isArray(selectedPath)
+        ? selectedPath[0]
+        : selectedPath;
+
+      if (!folderPath) {
+        return;
+      }
+      if (folderPath !== project.targetFolder) {
+        throw new Error("Select the original project folder to continue.");
+      }
+
+      await scanProject(project);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "An unexpected error occurred.";
+      console.error(`Failed to restore access to "${project.name}".`, error);
+      setScanState({ projectId: project.id, status: "error", message });
+    } finally {
+      setIsAuthorizing(false);
+    }
   }
 
   if (openedProject) {
@@ -113,15 +189,72 @@ function App() {
               {openedProject.targetFolder}
             </p>
             <div className="mt-10 rounded-2xl border border-white/8 bg-white/[0.03] p-5 sm:p-6">
-              <p className="font-medium text-stone-200">
-                Your project is ready.
-              </p>
-              <p className="mt-2 text-sm leading-6 text-stone-400">
-                {openedProject.totalFiles > 0
-                  ? `${Math.min(openedProject.currentIndex, openedProject.totalFiles).toLocaleString()} of ${openedProject.totalFiles.toLocaleString()} files reviewed. `
-                  : "Media scanning has not started yet. "}
-                The media viewer is coming next. Files will not be deleted until
-                you review the final summary and confirm.
+              <div aria-live="polite">
+                {openedProjectScan?.status === "scanning" && (
+                  <>
+                    <p className="font-medium text-stone-200">
+                      Scanning your folder…
+                    </p>
+                    <p className="mt-2 text-sm leading-6 text-stone-400">
+                      Looking through its subfolders for supported photos and
+                      videos.
+                    </p>
+                  </>
+                )}
+                {openedProjectScan?.status === "complete" && (
+                  <>
+                    <p className="font-medium text-stone-200">
+                      {openedProjectScan.fileCount === 0
+                        ? "No supported media found."
+                        : `Found ${openedProjectScan.fileCount.toLocaleString()} supported media files.`}
+                    </p>
+                    <p className="mt-2 text-sm leading-6 text-stone-400">
+                      {openedProject.totalFiles > 0
+                        ? `${Math.min(openedProject.currentIndex, openedProject.totalFiles).toLocaleString()} files reviewed so far. `
+                        : ""}
+                      Results are sorted by path. Your files have not been
+                      changed.
+                    </p>
+                  </>
+                )}
+                {openedProjectScan?.status === "error" && (
+                  <>
+                    <p className="font-medium text-rose-100">
+                      Could not scan this folder.
+                    </p>
+                    <p role="alert" className="mt-2 text-sm leading-6 text-rose-100/75">
+                      {openedProjectScan.message}
+                    </p>
+                    <div className="mt-5 flex flex-wrap gap-3">
+                      <button
+                        type="button"
+                        onClick={() => void scanProject(openedProject)}
+                        className="rounded-full border border-white/12 px-4 py-2 text-sm font-medium text-stone-200 transition hover:bg-white/[0.05]"
+                      >
+                        Retry scan
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleRestoreFolderAccess(openedProject)}
+                        disabled={isAuthorizing}
+                        className="rounded-full bg-emerald-200 px-4 py-2 text-sm font-semibold text-emerald-950 transition hover:bg-emerald-100 disabled:cursor-wait disabled:opacity-70"
+                      >
+                        {isAuthorizing
+                          ? "Opening folder picker..."
+                          : "Restore folder access"}
+                      </button>
+                    </div>
+                  </>
+                )}
+                {!openedProjectScan && (
+                  <p className="font-medium text-stone-200">
+                    Preparing to scan this project…
+                  </p>
+                )}
+              </div>
+              <p className="mt-5 border-t border-white/[0.06] pt-4 text-xs leading-5 text-stone-500">
+                Supported formats: MP4, WEBM, MOV, PNG, JPEG, JPG, GIF, and
+                WEBP. Files are never changed during scanning.
               </p>
             </div>
             <button

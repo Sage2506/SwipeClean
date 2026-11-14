@@ -6,6 +6,7 @@ interface ProjectStore {
   activeProjectId: string | null;
   createProject: (project: Project) => void;
   setActiveProject: (projectId: string | null) => void;
+  updateProjectTotalFiles: (projectId: string, totalFiles: number) => void;
   updateProjectProgress: (projectId: string, currentIndex: number) => void;
   markFileForDeletion: (projectId: string, filePath: string) => void;
   deleteProject: (projectId: string) => void;
@@ -26,6 +27,12 @@ export const useProjectStore = create<ProjectStore>((set) => ({
         project.id === projectId
           ? { ...project, lastAccessed: Date.now() }
           : project,
+      ),
+    })),
+  updateProjectTotalFiles: (projectId, totalFiles) =>
+    set((state) => ({
+      projects: state.projects.map((project) =>
+        project.id === projectId ? { ...project, totalFiles } : project,
       ),
     })),
   updateProjectProgress: (projectId, currentIndex) =>

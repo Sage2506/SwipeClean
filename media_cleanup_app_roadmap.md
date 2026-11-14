@@ -91,15 +91,17 @@
 
 1. **Recursive Reader Utility:**
 
-   * Create a function that takes a folder path and uses Tauri's `readDir` (with recursion logic) to find all files.
+   * Create `src/lib/mediaScanner.ts` with a function that takes a folder path and uses Tauri's `readDir` recursively to find files. Do not follow symlinks outside the selected folder.
 
 2. **Filter and Sort:**
 
-   * **MVP Scope:** Filter files to *strictly* include web-supported formats: `.mp4, .webm, .mov, .png, .jpeg, .jpg, .gif, .webp`. (Ignore `.mkv` and `.avi` entirely for this phase).
+   * **MVP Scope:** Filter files case-insensitively to *strictly* include web-supported formats: `.mp4, .webm, .mov, .png, .jpeg, .jpg, .gif, .webp`. (Ignore `.mkv` and `.avi` entirely for this phase).
 
-   * Sort the resulting array alphabetically.
+   * Sort the resulting paths alphabetically.
 
-3. **Update Project State:** Once the scan is complete, update the `totalFiles` count in the project state.
+3. **Update Project State:** Scan when a project is opened or created, then update the `totalFiles` count in the project state and show the scan status/result.
+
+   * Folder-picker access scopes are temporary. If a saved project's folder cannot be scanned after restarting the app, have the user select that same folder again to restore access.
 
 ## Phase 5: The "Tinder" Media Viewer
 
