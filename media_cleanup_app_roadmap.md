@@ -53,7 +53,11 @@
 
 4. **Configure Permissions:**
 
-   * Update `src-tauri/capabilities/default.json` (or `tauri.conf.json` depending on your Tauri v2 setup) to grant permissions to read/write in the AppData directory and access the file system for media files.
+   * In `src-tauri/capabilities/default.json`, grant only the needed permissions: `fs:allow-appdata-read` and `fs:allow-appdata-write` for project-state persistence, plus `fs:allow-read-dir`, `fs:allow-stat`, and `fs:allow-remove` for scanning, metadata, and deferred deletion.
+
+   * Enable `app.security.assetProtocol` in `src-tauri/tauri.conf.json` with an initially empty scope. Open the target folder with the dialog's `recursive: true` option; the dialog adds the user-selected folder and its subdirectories to the filesystem and asset-protocol scopes.
+
+   * Enable Tauri's `protocol-asset` Cargo feature in `src-tauri/Cargo.toml` so `convertFileSrc` can use the asset protocol.
 
 ## Phase 2: Data Modeling and State Management
 
@@ -77,7 +81,7 @@
 
 2. **Implement "New Project":**
 
-   * Hook the button to `@tauri-apps/plugin-dialog` (`open({ directory: true })`).
+   * Hook the button to `@tauri-apps/plugin-dialog` (`open({ directory: true, recursive: true })`) so the selected folder and its subdirectories are added to the filesystem and asset-protocol scopes.
 
    * When a folder is selected, create a new `Project` object, add it to the Zustand store, and set it as the active project.
 
