@@ -19,7 +19,15 @@ export const useProjectStore = create<ProjectStore>((set) => ({
       projects: [...state.projects, project],
       activeProjectId: project.id,
     })),
-  setActiveProject: (projectId) => set({ activeProjectId: projectId }),
+  setActiveProject: (projectId) =>
+    set((state) => ({
+      activeProjectId: projectId,
+      projects: state.projects.map((project) =>
+        project.id === projectId
+          ? { ...project, lastAccessed: Date.now() }
+          : project,
+      ),
+    })),
   updateProjectProgress: (projectId, currentIndex) =>
     set((state) => ({
       projects: state.projects.map((project) =>
