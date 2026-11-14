@@ -53,7 +53,11 @@
 
 4. **Configure Permissions:**
 
-   * Update `src-tauri/capabilities/default.json` (or `tauri.conf.json` depending on your Tauri v2 setup) to grant permissions to read/write in the AppData directory and access the file system for media files.
+   * In `src-tauri/capabilities/default.json`, grant only the needed permissions: `fs:allow-appdata-read` and `fs:allow-appdata-write` for project-state persistence, plus `fs:allow-read-dir`, `fs:allow-stat`, and `fs:allow-remove` for scanning, metadata, and deferred deletion.
+
+   * Enable `app.security.assetProtocol` in `src-tauri/tauri.conf.json` with an initially empty scope. Open the target folder with the dialog's `recursive: true` option; the dialog adds the user-selected folder and its subdirectories to the filesystem and asset-protocol scopes.
+
+   * Enable Tauri's `protocol-asset` Cargo feature in `src-tauri/Cargo.toml` so `convertFileSrc` can use the asset protocol.
 
 ## Phase 2: Data Modeling and State Management
 
@@ -77,7 +81,7 @@
 
 2. **Implement "New Project":**
 
-   * Hook the button to `@tauri-apps/plugin-dialog` (`open({ directory: true })`).
+   * Hook the button to `@tauri-apps/plugin-dialog` (`open({ directory: true, recursive: true })`) so the selected folder and its subdirectories are added to the filesystem and asset-protocol scopes.
 
    * When a folder is selected, create a new `Project` object, add it to the Zustand store, and set it as the active project.
 
@@ -87,69 +91,89 @@
 
 1. **Recursive Reader Utility:**
 
-   * Create a function that takes a folder path and uses Tauri's `readDir` (with recursion logic) to find all files.
+   * Create `src/lib/mediaScanner.ts` with a function that takes a folder path and uses Tauri's `readDir` recursively to find files. Do not follow symlinks outside the selected folder.
 
 2. **Filter and Sort:**
 
-   * **MVP Scope:** Filter files to *strictly* include web-supported formats: `.mp4, .webm, .mov, .png, .jpeg, .jpg, .gif, .webp`. (Ignore `.mkv` and `.avi` entirely for this phase).
+   * **MVP Scope:** Filter files case-insensitively to *strictly* include web-supported formats: `.mp4, .webm, .mov, .png, .jpeg, .jpg, .gif, .webp`. (Ignore `.mkv` and `.avi` entirely for this phase).
 
-   * Sort the resulting array alphabetically.
+   * Sort the resulting paths alphabetically.
 
-3. **Update Project State:** Once the scan is complete, update the `totalFiles` count in the project state.
+3. **Update Project State:** Scan when a project is opened or created, then update the `totalFiles` count in the project state and show the scan status/result.
+
+   * Folder-picker access scopes are temporary. If a saved project's folder cannot be scanned after restarting the app, have the user select that same folder again to restore access.
 
 ## Phase 5: The "Tinder" Media Viewer
 
 1. **UI Layout:**
 
-   * Main central area for the media (`<img>` or `<video controls autoPlay loop>`).
+   * Implemented in `src/components/MediaViewer.tsx`: a central media area (`<img>` or `<video controls autoPlay loop>`) with a file-details sidebar.
 
-   * Sidebar or overlay for file metadata (Name, Size, Path, Date).
+   * Show the file name, size, path, and creation date; report unavailable metadata instead of hiding file access errors.
 
-   * Status bar showing progress (e.g., "File 45 of 1500").
+   * Show review progress (e.g., "File 45 of 1500") and keep deletion deferred until the summary phase.
 
 2. **Tauri Asset Protocol:**
 
-   * *Crucial Step:* Browsers block local file access (`file://`). Use Tauri's `convertFileSrc` from `@tauri-apps/api/core` to convert absolute file paths into custom protocol URLs (e.g., `asset://localhost/C:/...`) so React can render them.
+   * Use `convertFileSrc` from `@tauri-apps/api/core` to convert absolute file paths into custom protocol URLs so React can render them.
 
 3. **Keyboard Listeners:**
 
-   * Attach a `useEffect` for `keydown`.
+   * Attach and clean up a `keydown` listener in `useEffect`.
 
    * **ArrowLeft:** Add current file to `markedForDeletion`, increment `currentIndex`.
 
    * **ArrowRight:** Just increment `currentIndex`.
 
-   * **ArrowUp (Optional):** Undo (decrement index, remove from marked list).
+   * **ArrowUp:** Undo (decrement index and remove the previous file from `markedForDeletion` if needed).
 
 4. **Auto-Save:** Ensure every keystroke/index change triggers a debounced save to `projects.json`.
 
+   * The Zustand subscription persists the latest state with a 250 ms debounce.
+
 ## Phase 6: Summary and Execution View
 
-1. **The Review Table:** When `currentIndex === totalFiles`, render a Tailwind-styled table listing everything in `markedForDeletion`.
+1. **The Review Table:** When review is complete, show a Tailwind-styled table listing everything in `markedForDeletion`.
 
-2. **Metadata Fetching:** Iterate through the marked files and fetch their size and creation date using `@tauri-apps/plugin-fs` `stat` to display in the table. Calculate the total MB/GB to be freed.
+2. **Metadata Fetching:** Fetch each marked file's size and creation date using `stat` from `@tauri-apps/plugin-fs`. Display metadata errors per file and calculate the total available size.
 
 3. **Safety Lock:**
 
-   * Add an `<input>` requiring the user to type the project's folder name.
+   * Require the user to type the project's folder name.
 
-   * Disable the "Delete Forever" button until the input matches.
+   * Disable the destructive action until the input matches. If no files are marked, use the same confirmation to finish and remove the project without deleting files.
 
 4. **Deletion Logic:**
 
-   * On click, loop through `markedForDeletion` and use `removeFile` from the Tauri fs plugin.
+   * On confirmation, delete marked files sequentially using `remove` from the Tauri fs plugin.
 
-   * Wrap in `try/catch` to handle locked files.
+   * Catch and report each file's failure. Remove successfully deleted paths from the project while retaining failed paths so the user can retry.
 
-   * Once complete, mark the project as finished or remove it from `projects.json`.
+   * Remove the project from `projects.json` when every marked file has been deleted, or after the user safely finishes a review with no marked files.
 
 ## Phase 7: Polish and Build MVP
 
 1. **Performance:** Check that massive folders don't lag the app (store only string paths in state, not file buffers).
 
-2. **App Icons:** Use Tauri's icon generator to create the OS-specific icons.
+2. **App Icons:** Generated the OS-specific icons with Tauri's icon generator using the existing Tauri placeholder logo. Replace the source with a SwipeClean-specific icon when available.
 
-3. **Production Build:** Run `npm run tauri build` to generate the MVP installer.
+3. **Production Build:** `npm run tauri build` previously generated the macOS ARM64 application and DMG; rebuild after changes to include them. Build on Windows and Ubuntu to generate installers for those platforms.
+
+4. **Choice Feedback:** Implemented: when the user chooses to keep or mark a file for deletion, display the choice for 300 ms by default. During the feedback duration, animate an inner box shadow around the entire border of the photo or video: red for deletion, green for keeping. Then slide the card toward the chosen side before changing to the next file.
+
+5. **Stop Reviewing:** Implemented a stop button that closes the current project while preserving its progress so the user can resume later.
+
+6. **Delete Project:** Implemented a delete option in the project list that asks for confirmation before removing the project without deleting media.
+
+7. **Preferences:** Implemented a preferences section with:
+
+   * An option to enable or disable video autoplay.
+
+   * An option to change the duration of keep/deletion feedback, defaulting to 300 ms.
+
+   * A range control for video preview speed with 1x, 1.5x, and 2x options.
+
+8. **Mid-Review Preview:** Implemented a review screen accessible before the project is finished. Users can delete currently marked files, then resume at the same file. Successful deletions update progress, the folder is rescanned, and failed deletions remain marked for retry.
 
 ## Phase 8: Post-MVP - FFmpeg Integration (.mkv & .avi support)
 

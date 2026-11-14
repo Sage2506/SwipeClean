@@ -1,1 +1,41 @@
 @import "tailwindcss";
+
+.decision-card {
+  transition: transform 180ms ease-in, opacity 180ms ease-in;
+}
+
+.decision-card.slide-left {
+  transform: translateX(-100%);
+  opacity: 0;
+}
+
+.decision-card.slide-right {
+  transform: translateX(100%);
+  opacity: 0;
+}
+
+.decision-glow {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  animation: decision-glow ease-out both;
+}
+
+.decision-glow-delete {
+  box-shadow: inset 0 0 60px 12px rgba(248, 113, 113, 0.8);
+}
+
+.decision-glow-keep {
+  box-shadow: inset 0 0 60px 12px rgba(110, 231, 183, 0.8);
+}
+
+@keyframes decision-glow {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .decision-card { transition: none; }
+  .decision-glow { animation: none; }
+}
