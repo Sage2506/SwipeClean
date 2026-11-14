@@ -40,6 +40,10 @@
             {
               "validator": "^[^\\r\\n]+\\.(?i:mkv|avi|mp4|mov)$"
             },
+            "-vf",
+            {
+              "validator": "^(?:null|scale=w='min\\(1024,iw\\)':h=-2)$"
+            },
             "-map",
             "0:v:0",
             "-map",

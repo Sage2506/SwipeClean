@@ -4,6 +4,7 @@ import { join, tempDir } from "@tauri-apps/api/path";
 import { Command } from "@tauri-apps/plugin-shell";
 import { exists, remove } from "@tauri-apps/plugin-fs";
 import { isHevcMain10 } from "../lib/videoCodec";
+import { videoTranscodeArgs } from "../lib/videoTranscode";
 
 interface VideoPlayerProps {
   filePath: string;
@@ -186,37 +187,9 @@ function VideoPlayer({
           return;
         }
 
-        const transcoding = await runFfmpeg([
-          "-hide_banner",
-          "-loglevel",
-          "error",
-          "-nostdin",
-          "-i",
-          filePath,
-          "-map",
-          "0:v:0",
-          "-map",
-          "0:a:0?",
-          "-c:v",
-          "libvpx-vp9",
-          "-deadline",
-          "realtime",
-          "-cpu-used",
-          "8",
-          "-crf",
-          "32",
-          "-b:v",
-          "0",
-          "-strict",
-          "-2",
-          "-c:a",
-          "opus",
-          "-b:a",
-          "128k",
-          "-f",
-          "webm",
-          outputPath,
-        ]);
+        const transcoding = await runFfmpeg(
+          videoTranscodeArgs(filePath, outputPath, requiresCodecProbe),
+        );
         if (cancelled || !transcoding) {
           return;
         }
