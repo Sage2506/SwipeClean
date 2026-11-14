@@ -13,7 +13,61 @@
     "fs:allow-appdata-write",
     "fs:allow-read-dir",
     "fs:allow-stat",
+    "fs:allow-exists",
     "fs:allow-remove",
-    "os:default"
+    "os:default",
+    "shell:default",
+    "shell:allow-kill",
+    {
+      "identifier": "fs:scope",
+      "allow": [
+        "$TEMP",
+        "$TEMP/swipeclean-preview-*.webm"
+      ]
+    },
+    {
+      "identifier": "shell:allow-spawn",
+      "allow": [
+        {
+          "name": "binaries/ffmpeg",
+          "sidecar": true,
+          "args": [
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-nostdin",
+            "-i",
+            {
+              "validator": "^[^\\r\\n]+\\.(?i:mkv|avi|mp4|mov)$"
+            },
+            "-map",
+            "0:v:0",
+            "-map",
+            "0:a:0?",
+            "-c:v",
+            "libvpx-vp9",
+            "-deadline",
+            "realtime",
+            "-cpu-used",
+            "8",
+            "-crf",
+            "32",
+            "-b:v",
+            "0",
+            "-strict",
+            "-2",
+            "-c:a",
+            "opus",
+            "-b:a",
+            "128k",
+            "-f",
+            "webm",
+            {
+              "validator": "^[^\\r\\n]*[\\\\/]swipeclean-preview-[0-9a-f-]{36}\\.webm$"
+            }
+          ]
+        }
+      ]
+    }
   ]
 }

@@ -5,6 +5,7 @@ import MediaViewer from "./components/MediaViewer";
 import PreferencesSection from "./components/PreferencesSection";
 import ReviewSummary from "./components/ReviewSummary";
 import { scanMediaFiles } from "./lib/mediaScanner";
+import { cleanVideoPreviewCache } from "./lib/videoPreviewCache";
 import { useProjectStore } from "./store/useProjectStore";
 import type { Project } from "./types";
 import "./App.css";
@@ -48,6 +49,7 @@ function App() {
     setScanState({ projectId: project.id, status: "scanning" });
 
     try {
+      await cleanVideoPreviewCache();
       const mediaPaths = await scanMediaFiles(project.targetFolder);
       if (sequence !== scanSequence.current) {
         return;
@@ -279,11 +281,11 @@ function App() {
                 {openedProjectScan?.status === "scanning" && (
                   <>
                     <p className="font-medium text-stone-200">
-                      Scanning your folder…
+                      Preparing your project…
                     </p>
                     <p className="mt-2 text-sm leading-6 text-stone-400">
-                      Looking through its subfolders for supported photos and
-                      videos.
+                      Cleaning stale video previews and looking through
+                      subfolders for supported photos and videos.
                     </p>
                   </>
                 )}
@@ -323,8 +325,10 @@ function App() {
                 )}
               </div>
               <p className="mt-5 border-t border-white/[0.06] pt-4 text-xs leading-5 text-stone-500">
-                Supported formats: MP4, WEBM, MOV, PNG, JPEG, JPG, GIF, and
-                WEBP. Files are never changed during scanning.
+                Supported formats: MP4, WEBM, MOV, MKV, AVI, PNG, JPEG, JPG,
+                GIF, and WEBP. MKV/AVI and HEVC Main 10 MP4/MOV previews are
+                transcoded to temporary WebM files; original files are never
+                changed.
               </p>
             </div>
             <button

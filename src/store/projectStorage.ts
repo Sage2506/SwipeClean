@@ -6,7 +6,11 @@ import {
   readTextFile,
   writeTextFile,
 } from "@tauri-apps/plugin-fs";
-import type { Preferences, Project } from "../types";
+import {
+  MAX_VIDEO_PLAYBACK_DELAY_SECONDS,
+  type Preferences,
+  type Project,
+} from "../types";
 import { defaultPreferences, useProjectStore } from "./useProjectStore";
 
 interface PersistedProjectState {
@@ -70,9 +74,22 @@ function parseProjectState(contents: string): PersistedProjectState {
 
   const preferences =
     value.preferences === undefined ? defaultPreferences : value.preferences;
+  const videoAudioEnabled =
+    isRecord(preferences) && "videoAudioEnabled" in preferences
+      ? preferences.videoAudioEnabled
+      : defaultPreferences.videoAudioEnabled;
+  const videoPlaybackDelaySeconds =
+    isRecord(preferences) && "videoPlaybackDelaySeconds" in preferences
+      ? preferences.videoPlaybackDelaySeconds
+      : defaultPreferences.videoPlaybackDelaySeconds;
   if (
     !isRecord(preferences) ||
     typeof preferences.autoplayVideo !== "boolean" ||
+    typeof videoAudioEnabled !== "boolean" ||
+    typeof videoPlaybackDelaySeconds !== "number" ||
+    !Number.isSafeInteger(videoPlaybackDelaySeconds) ||
+    videoPlaybackDelaySeconds < 0 ||
+    videoPlaybackDelaySeconds > MAX_VIDEO_PLAYBACK_DELAY_SECONDS ||
     typeof preferences.feedbackDurationMs !== "number" ||
     !Number.isSafeInteger(preferences.feedbackDurationMs) ||
     preferences.feedbackDurationMs < 0 ||
@@ -89,6 +106,8 @@ function parseProjectState(contents: string): PersistedProjectState {
     activeProjectId: value.activeProjectId,
     preferences: {
       autoplayVideo: preferences.autoplayVideo,
+      videoAudioEnabled,
+      videoPlaybackDelaySeconds,
       feedbackDurationMs: preferences.feedbackDurationMs,
       videoPlaybackRate: preferences.videoPlaybackRate,
     },

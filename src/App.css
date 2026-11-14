@@ -14,6 +14,14 @@
   opacity: 0;
 }
 
+.decision-card.skip-entry-transition {
+  transition: none;
+}
+
+.media-card-underlay {
+  transform: scale(0.96) translateY(10px);
+}
+
 .decision-glow {
   position: absolute;
   inset: 0;

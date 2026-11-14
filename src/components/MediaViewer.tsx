@@ -4,6 +4,7 @@ import { stat } from "@tauri-apps/plugin-fs";
 import { formatBytes, formatDate, getFileName } from "../lib/formatters";
 import { useProjectStore } from "../store/useProjectStore";
 import type { Project } from "../types";
+import VideoPlayer from "./VideoPlayer";
 
 interface MediaViewerProps {
   project: Project;
@@ -18,7 +19,7 @@ interface FileMetadata {
   birthtime: Date | null;
 }
 
-const videoExtensions = new Set(["mp4", "webm", "mov"]);
+const videoExtensions = new Set(["mp4", "webm", "mov", "mkv", "avi"]);
 
 function decideCurrentFile(
   projectId: string,
@@ -54,10 +55,12 @@ function undoLastDecision(projectId: string, mediaFiles: string[]): void {
 
 function MediaViewer({ project, mediaFiles, onBack, onPreview }: MediaViewerProps) {
   const currentFilePath = mediaFiles[project.currentIndex] ?? null;
+  const nextFilePath = mediaFiles[project.currentIndex + 1] ?? null;
   const preferences = useProjectStore((state) => state.preferences);
   const [metadata, setMetadata] = useState<FileMetadata | null>(null);
   const [metadataLoading, setMetadataLoading] = useState(false);
   const [metadataError, setMetadataError] = useState<string | null>(null);
+  const [skipEntryTransition, setSkipEntryTransition] = useState(false);
   const [feedback, setFeedback] = useState<{
     markForDeletion: boolean;
     sliding: boolean;
@@ -71,15 +74,18 @@ function MediaViewer({ project, mediaFiles, onBack, onPreview }: MediaViewerProp
 
   function startDecision(markForDeletion: boolean) {
     if (pendingDecision.current !== null || !currentFilePath) return;
+    if (timer.current !== null) clearTimeout(timer.current);
+    setSkipEntryTransition(false);
     pendingDecision.current = markForDeletion;
     setFeedback({ markForDeletion, sliding: false });
     timer.current = setTimeout(() => {
       setFeedback({ markForDeletion, sliding: true });
       timer.current = setTimeout(() => {
         pendingDecision.current = null;
-        timer.current = null;
+        setSkipEntryTransition(true);
         decideCurrentFile(project.id, mediaFiles, markForDeletion);
         setFeedback(null);
+        timer.current = null;
       }, 180);
     }, preferences.feedbackDurationMs);
   }
@@ -249,55 +255,71 @@ function MediaViewer({ project, mediaFiles, onBack, onPreview }: MediaViewerProp
             </div>
 
             <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_19rem]">
-              <section
-                aria-label="Media preview"
-                className={`decision-card relative flex min-h-[55vh] items-center justify-center overflow-hidden rounded-[1.75rem] border border-white/8 bg-black/50 p-3 sm:min-h-[65vh] sm:p-5 ${
-                  feedback?.sliding ? (feedback.markForDeletion ? "slide-left" : "slide-right") : ""
-                }`}
-              >
-                <div className="relative flex min-w-0 max-w-full items-center justify-center overflow-hidden rounded-xl">
-                  {isVideo ? (
-                    <video
-                      key={currentFilePath}
-                      src={convertFileSrc(currentFilePath)}
-                      controls
-                      autoPlay={preferences.autoplayVideo}
-                      muted
-                      loop
-                      playsInline
-                      ref={(video) => {
-                        if (video) {
-                          video.defaultPlaybackRate = preferences.videoPlaybackRate;
-                          video.playbackRate = preferences.videoPlaybackRate;
-                        }
-                      }}
-                      onLoadedMetadata={(event) => {
-                        event.currentTarget.playbackRate = preferences.videoPlaybackRate;
-                      }}
-                      className="max-h-[72vh] max-w-full rounded-xl object-contain"
-                    />
-                  ) : (
-                    <img
-                      key={currentFilePath}
-                      src={convertFileSrc(currentFilePath)}
-                      alt={metadata?.name ?? getFileName(currentFilePath)}
-                      className="max-h-[72vh] max-w-full rounded-xl object-contain"
-                    />
-                  )}
-                  {feedback && (
-                    <div
-                      aria-hidden="true"
-                      className={`decision-glow ${feedback.markForDeletion ? "decision-glow-delete" : "decision-glow-keep"}`}
-                      style={{ animationDuration: `${preferences.feedbackDurationMs}ms` }}
-                    />
-                  )}
-                </div>
-                {feedback && (
-                  <p role="status" className="absolute bottom-8 rounded-full bg-black/80 px-5 py-2 text-sm font-semibold text-white">
-                    {feedback.markForDeletion ? "Marked for deletion" : "Keep"}
-                  </p>
+              <div className="relative min-h-[55vh] sm:min-h-[65vh]">
+                {nextFilePath && (
+                  <div
+                    aria-hidden="true"
+                    className="media-card-underlay absolute inset-0 flex items-center justify-center overflow-hidden rounded-[1.75rem] border border-white/8 bg-[#121918] p-3 sm:p-5"
+                  >
+                    {videoExtensions.has(
+                      nextFilePath.slice(nextFilePath.lastIndexOf(".") + 1).toLowerCase(),
+                    ) ? (
+                      <div className="flex max-w-full flex-col items-center gap-2 text-center">
+                        <span className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">
+                          Next video
+                        </span>
+                        <span className="max-w-full break-all text-sm text-stone-300">
+                          {getFileName(nextFilePath)}
+                        </span>
+                      </div>
+                    ) : (
+                      <img
+                        src={convertFileSrc(nextFilePath)}
+                        alt=""
+                        className="max-h-[72vh] max-w-full rounded-xl object-contain"
+                      />
+                    )}
+                  </div>
                 )}
-              </section>
+                <section
+                  aria-label="Media preview"
+                  className={`decision-card relative z-10 flex min-h-[55vh] items-center justify-center overflow-hidden rounded-[1.75rem] border border-white/8 bg-black/50 p-3 sm:min-h-[65vh] sm:p-5 ${
+                    feedback?.sliding ? (feedback.markForDeletion ? "slide-left" : "slide-right") : ""
+                  } ${skipEntryTransition ? "skip-entry-transition" : ""}`}
+                >
+                  <div className="relative flex min-w-0 max-w-full items-center justify-center overflow-hidden rounded-xl">
+                    {isVideo ? (
+                      <VideoPlayer
+                        key={currentFilePath}
+                        filePath={currentFilePath}
+                        autoPlay={preferences.autoplayVideo}
+                        audioEnabled={preferences.videoAudioEnabled}
+                        playbackDelaySeconds={preferences.videoPlaybackDelaySeconds}
+                        playbackRate={preferences.videoPlaybackRate}
+                      />
+                    ) : (
+                      <img
+                        key={currentFilePath}
+                        src={convertFileSrc(currentFilePath)}
+                        alt={metadata?.name ?? getFileName(currentFilePath)}
+                        className="max-h-[72vh] max-w-full rounded-xl object-contain"
+                      />
+                    )}
+                    {feedback && (
+                      <div
+                        aria-hidden="true"
+                        className={`decision-glow ${feedback.markForDeletion ? "decision-glow-delete" : "decision-glow-keep"}`}
+                        style={{ animationDuration: `${preferences.feedbackDurationMs}ms` }}
+                      />
+                    )}
+                  </div>
+                  {feedback && (
+                    <p role="status" className="absolute bottom-8 rounded-full bg-black/80 px-5 py-2 text-sm font-semibold text-white">
+                      {feedback.markForDeletion ? "Marked for deletion" : "Keep"}
+                    </p>
+                  )}
+                </section>
+              </div>
 
               <aside className="flex flex-col gap-4">
                 <section className="rounded-[1.5rem] border border-white/8 bg-[#121918] p-5">

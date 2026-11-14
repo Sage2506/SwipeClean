@@ -3,6 +3,8 @@ import type { Preferences, Project } from "../types";
 
 export const defaultPreferences: Preferences = {
   autoplayVideo: true,
+  videoAudioEnabled: false,
+  videoPlaybackDelaySeconds: 0,
   feedbackDurationMs: 300,
   videoPlaybackRate: 1,
 };

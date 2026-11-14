@@ -1,16 +1,26 @@
 import { useState } from "react";
+import { MAX_VIDEO_PLAYBACK_DELAY_SECONDS } from "../types";
 import { useProjectStore } from "../store/useProjectStore";
 
 function PreferencesSection() {
   const preferences = useProjectStore((state) => state.preferences);
   const setPreferences = useProjectStore((state) => state.setPreferences);
   const [duration, setDuration] = useState(String(preferences.feedbackDurationMs));
+  const [playbackDelay, setPlaybackDelay] = useState(
+    String(preferences.videoPlaybackDelaySeconds),
+  );
   const durationNumber = Number(duration);
+  const playbackDelayNumber = Number(playbackDelay);
   const validDuration =
     duration.trim() !== "" &&
     Number.isSafeInteger(durationNumber) &&
     durationNumber >= 0 &&
     durationNumber <= 2147483647;
+  const validPlaybackDelay =
+    playbackDelay.trim() !== "" &&
+    Number.isSafeInteger(playbackDelayNumber) &&
+    playbackDelayNumber >= 0 &&
+    playbackDelayNumber <= MAX_VIDEO_PLAYBACK_DELAY_SECONDS;
 
   return (
     <section aria-labelledby="preferences-heading" className="mt-12 border-t border-white/8 pt-10">
@@ -18,7 +28,7 @@ function PreferencesSection() {
         Preferences
       </h2>
       <p className="mt-2 text-sm text-stone-400">Changes are saved automatically.</p>
-      <div className="mt-6 grid gap-6 rounded-[1.5rem] border border-white/8 bg-[#121918] p-6 sm:grid-cols-3">
+      <div className="mt-6 grid gap-6 rounded-[1.5rem] border border-white/8 bg-[#121918] p-6 sm:grid-cols-2 lg:grid-cols-3">
         <label className="flex items-start gap-3 text-sm text-stone-200">
           <input
             type="checkbox"
@@ -27,6 +37,52 @@ function PreferencesSection() {
             className="mt-1 accent-emerald-300"
           />
           Autoplay videos
+        </label>
+        <label className={`flex items-start gap-3 text-sm text-stone-200 transition-opacity ${
+          preferences.autoplayVideo ? "" : "cursor-not-allowed opacity-40"
+        }`}>
+          <input
+            type="checkbox"
+            checked={preferences.videoAudioEnabled}
+            disabled={!preferences.autoplayVideo}
+            onChange={(event) => setPreferences({ videoAudioEnabled: event.target.checked })}
+            className="mt-1 accent-emerald-300"
+          />
+          Play video audio by default
+        </label>
+        <label className={`text-sm text-stone-200 transition-opacity ${
+          preferences.autoplayVideo ? "" : "cursor-not-allowed opacity-40"
+        }`}>
+          Video autoplay delay (seconds)
+          <input
+            type="number"
+            min="0"
+            max={MAX_VIDEO_PLAYBACK_DELAY_SECONDS}
+            step="1"
+            value={playbackDelay}
+            disabled={!preferences.autoplayVideo}
+            aria-invalid={!validPlaybackDelay}
+            aria-describedby={!validPlaybackDelay ? "playback-delay-error" : undefined}
+            onChange={(event) => {
+              const next = event.target.value;
+              setPlaybackDelay(next);
+              const value = Number(next);
+              if (
+                next.trim() !== "" &&
+                Number.isSafeInteger(value) &&
+                value >= 0 &&
+                value <= MAX_VIDEO_PLAYBACK_DELAY_SECONDS
+              ) {
+                setPreferences({ videoPlaybackDelaySeconds: value });
+              }
+            }}
+            className="mt-2 block w-full rounded-xl border border-white/12 bg-black/20 px-3 py-2 text-white"
+          />
+          {!validPlaybackDelay && (
+            <span id="playback-delay-error" role="alert" className="mt-2 block text-xs text-rose-200">
+              Enter a whole number from 0 to {MAX_VIDEO_PLAYBACK_DELAY_SECONDS} seconds.
+            </span>
+          )}
         </label>
         <label className="text-sm text-stone-200">
           Choice feedback duration (ms)

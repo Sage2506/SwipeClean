@@ -5,6 +5,8 @@ const supportedExtensions = new Set([
   "mp4",
   "webm",
   "mov",
+  "mkv",
+  "avi",
   "png",
   "jpeg",
   "jpg",

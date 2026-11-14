@@ -50,3 +50,18 @@ test("scans an explicitly selected dot-prefixed root", async () => {
 
   assert.deepEqual(await scanMediaFiles("/.selected"), ["/.selected/image.jpg"]);
 });
+
+test("includes MKV and AVI files case-insensitively", async () => {
+  mockIPC((command, args) => {
+    if (command === "plugin:path|join") return posix.join(...args.paths);
+    if (command === "plugin:fs|read_dir" && args.path === "/selected") {
+      return [file("episode.MKV"), file("clip.Avi"), file("notes.txt")];
+    }
+    throw new Error(`Unexpected command or path: ${command} ${args.path}`);
+  });
+
+  assert.deepEqual(await scanMediaFiles("/selected"), [
+    "/selected/clip.Avi",
+    "/selected/episode.MKV",
+  ]);
+});

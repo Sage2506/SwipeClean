@@ -95,7 +95,7 @@
 
 2. **Filter and Sort:**
 
-   * **MVP Scope:** Filter files case-insensitively to *strictly* include web-supported formats: `.mp4, .webm, .mov, .png, .jpeg, .jpg, .gif, .webp`. (Ignore `.mkv` and `.avi` entirely for this phase).
+   * **Initial MVP scope:** Filter files case-insensitively to `.mp4, .webm, .mov, .png, .jpeg, .jpg, .gif, .webp`. Phase 8 step 3 later added `.mkv` and `.avi` to scanning.
 
    * Sort the resulting paths alphabetically.
 
@@ -177,16 +177,10 @@
 
 ## Phase 8: Post-MVP - FFmpeg Integration (.mkv & .avi support)
 
-1. **Add the Shell Plugin:** Run `npm run tauri add shell` to allow Tauri to spawn child processes.
+1. **Add the Shell Plugin:** Added the Tauri shell plugin for Rust and JavaScript. The default capability is registered; step 4 grants spawning and terminating only the FFmpeg sidecar with the fixed transcoding arguments.
 
-2. **Bundle FFmpeg:** Use Tauri's "Sidecar" feature to bundle the FFmpeg executable for Windows/Mac/Linux with your app so the user doesn't have to install it manually.
+2. **Bundle FFmpeg:** Implemented Tauri's sidecar configuration with pinned LGPL-only static FFmpeg builds for macOS (universal2), Windows x64, and Linux x64/ARM64. The dev/build hooks download the host-target binary, verify its published SHA-256 digest, and include it in the app bundle; users do not install FFmpeg separately. The source builds and license details are documented in `THIRD_PARTY_NOTICES.md`. Step 4 adds narrowly scoped process and temporary-file permissions. Cross-platform bundles still need validation on their native operating systems.
 
-3. **Update Scanner:** Modify Phase 4 to now include `.mkv` and `.avi` files in the recursive scan.
+3. **Update Scanner:** Implemented: the recursive scan now includes `.mkv` and `.avi` case-insensitively, and the media viewer classifies them as video. Step 4 adds playback through temporary WebM previews.
 
-4. **On-the-fly Transcoding Component:**
-
-   * Create a custom `<VideoPlayer>` component in React.
-
-   * If the file is web-supported, render a standard `<video>`.
-
-   * If the file is `.mkv` or `.avi`, use the Tauri shell plugin to invoke the FFmpeg sidecar. You can transcode it into a temporary `.mp4` file in the OS temp directory, then serve that temp file via `convertFileSrc` to the `<video>` element.
+4. **On-the-fly Transcoding Component:** Implemented a `VideoPlayer` that renders web-supported formats directly and converts MKV/AVI plus probed HEVC Main 10 MP4/MOV files to temporary WebM previews with the LGPL-only VP9/Opus encoders. A one-frame stream-copy probe identifies the codec profile without decoding the full source; other MP4/MOV files play directly. Preview files are removed when the media changes or the player unmounts, and leftover generated previews are cleaned when a project scan starts; source files are never modified. The sidecar execution arguments and temporary asset/filesystem access are scoped to this feature.
