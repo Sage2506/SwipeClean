@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { stat } from "@tauri-apps/plugin-fs";
+import { formatBytes, formatDate, getFileName } from "../lib/formatters";
 import { useProjectStore } from "../store/useProjectStore";
 import type { Project } from "../types";
 
@@ -48,36 +49,6 @@ function undoLastDecision(projectId: string, mediaFiles: string[]): void {
   if (previousFile) {
     useProjectStore.getState().undoLastDecision(projectId, previousFile);
   }
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) {
-    return `${bytes} B`;
-  }
-
-  const units = ["KB", "MB", "GB", "TB"];
-  let value = bytes;
-  let unitIndex = -1;
-  do {
-    value /= 1024;
-    unitIndex += 1;
-  } while (value >= 1024 && unitIndex < units.length - 1);
-
-  return `${value.toFixed(value >= 10 ? 0 : 1)} ${units[unitIndex]}`;
-}
-
-function getFileName(filePath: string): string {
-  return filePath.split(/[\\/]/).filter(Boolean).pop() || filePath;
-}
-
-function formatDate(date: Date | null): string {
-  if (!date || Number.isNaN(date.getTime())) {
-    return "Unavailable";
-  }
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date);
 }
 
 function MediaViewer({ project, mediaFiles, onBack }: MediaViewerProps) {
@@ -165,7 +136,6 @@ function MediaViewer({ project, mediaFiles, onBack }: MediaViewerProps) {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [mediaFiles, project.id]);
 
-  const isComplete = project.currentIndex >= mediaFiles.length;
   const progress =
     mediaFiles.length > 0
       ? Math.min(
@@ -201,7 +171,7 @@ function MediaViewer({ project, mediaFiles, onBack }: MediaViewerProps) {
               </p>
             </div>
           </div>
-          {!isComplete && mediaFiles.length > 0 && (
+          {mediaFiles.length > 0 && (
             <p className="shrink-0 text-sm font-medium text-stone-400">
               File{" "}
               <span className="text-stone-100">
@@ -224,38 +194,6 @@ function MediaViewer({ project, mediaFiles, onBack }: MediaViewerProps) {
               This folder may be empty or contain file types outside the MVP
               formats. Your files have not been changed.
             </p>
-            <button
-              type="button"
-              onClick={onBack}
-              className="mt-7 rounded-full bg-emerald-200 px-5 py-3 text-sm font-semibold text-emerald-950 transition hover:bg-emerald-100"
-            >
-              Back to projects
-            </button>
-          </section>
-        ) : isComplete ? (
-          <section className="flex min-h-[65vh] flex-col items-center justify-center rounded-[2rem] border border-white/8 bg-[#121918] px-6 text-center">
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-200">
-              Review complete
-            </p>
-            <h1 className="mt-4 text-3xl font-semibold tracking-tight">
-              You&apos;ve seen every file.
-            </h1>
-            <p className="mt-3 max-w-lg text-sm leading-6 text-stone-400">
-              {project.markedForDeletion.length > 0
-                ? `${project.markedForDeletion.length.toLocaleString()} file${project.markedForDeletion.length === 1 ? "" : "s"} marked for deletion. `
-                : "No files are marked for deletion. "}
-              Nothing has been deleted. Review and confirmation controls are
-              added in the next phase.
-            </p>
-            {project.currentIndex > 0 && (
-              <button
-                type="button"
-                onClick={() => undoLastDecision(project.id, mediaFiles)}
-                className="mt-6 rounded-full border border-white/12 px-5 py-3 text-sm font-medium text-stone-200 transition hover:bg-white/[0.05]"
-              >
-                Undo last decision
-              </button>
-            )}
             <button
               type="button"
               onClick={onBack}

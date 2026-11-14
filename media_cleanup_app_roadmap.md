@@ -133,23 +133,23 @@
 
 ## Phase 6: Summary and Execution View
 
-1. **The Review Table:** When `currentIndex === totalFiles`, render a Tailwind-styled table listing everything in `markedForDeletion`.
+1. **The Review Table:** When review is complete, show a Tailwind-styled table listing everything in `markedForDeletion`.
 
-2. **Metadata Fetching:** Iterate through the marked files and fetch their size and creation date using `@tauri-apps/plugin-fs` `stat` to display in the table. Calculate the total MB/GB to be freed.
+2. **Metadata Fetching:** Fetch each marked file's size and creation date using `stat` from `@tauri-apps/plugin-fs`. Display metadata errors per file and calculate the total available size.
 
 3. **Safety Lock:**
 
-   * Add an `<input>` requiring the user to type the project's folder name.
+   * Require the user to type the project's folder name.
 
-   * Disable the "Delete Forever" button until the input matches.
+   * Disable the destructive action until the input matches. If no files are marked, use the same confirmation to finish and remove the project without deleting files.
 
 4. **Deletion Logic:**
 
-   * On click, loop through `markedForDeletion` and use `removeFile` from the Tauri fs plugin.
+   * On confirmation, delete marked files sequentially using `remove` from the Tauri fs plugin.
 
-   * Wrap in `try/catch` to handle locked files.
+   * Catch and report each file's failure. Remove successfully deleted paths from the project while retaining failed paths so the user can retry.
 
-   * Once complete, mark the project as finished or remove it from `projects.json`.
+   * Remove the project from `projects.json` when every marked file has been deleted, or after the user safely finishes a review with no marked files.
 
 ## Phase 7: Polish and Build MVP
 

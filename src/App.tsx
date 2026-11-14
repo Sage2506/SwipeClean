@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { basename } from "@tauri-apps/api/path";
 import { open } from "@tauri-apps/plugin-dialog";
 import MediaViewer from "./components/MediaViewer";
+import ReviewSummary from "./components/ReviewSummary";
 import { scanMediaFiles } from "./lib/mediaScanner";
 import { useProjectStore } from "./store/useProjectStore";
 import type { Project } from "./types";
@@ -146,6 +147,15 @@ function App() {
   }
 
   if (openedProject && openedProjectScan?.status === "complete") {
+    if (openedProject.currentIndex >= openedProjectScan.mediaPaths.length) {
+      return (
+        <ReviewSummary
+          project={openedProject}
+          onFinish={() => setOpenedProjectId(null)}
+        />
+      );
+    }
+
     return (
       <MediaViewer
         project={openedProject}
