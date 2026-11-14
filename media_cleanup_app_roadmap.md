@@ -155,9 +155,25 @@
 
 1. **Performance:** Check that massive folders don't lag the app (store only string paths in state, not file buffers).
 
-2. **App Icons:** Use Tauri's icon generator to create the OS-specific icons.
+2. **App Icons:** Generated the OS-specific icons with Tauri's icon generator using the existing Tauri placeholder logo. Replace the source with a SwipeClean-specific icon when available.
 
-3. **Production Build:** Run `npm run tauri build` to generate the MVP installer.
+3. **Production Build:** `npm run tauri build` previously generated the macOS ARM64 application and DMG; rebuild after changes to include them. Build on Windows and Ubuntu to generate installers for those platforms.
+
+4. **Choice Feedback:** Implemented: when the user chooses to keep or mark a file for deletion, display the choice for 300 ms by default. During the feedback duration, animate an inner box shadow around the entire border of the photo or video: red for deletion, green for keeping. Then slide the card toward the chosen side before changing to the next file.
+
+5. **Stop Reviewing:** Implemented a stop button that closes the current project while preserving its progress so the user can resume later.
+
+6. **Delete Project:** Implemented a delete option in the project list that asks for confirmation before removing the project without deleting media.
+
+7. **Preferences:** Implemented a preferences section with:
+
+   * An option to enable or disable video autoplay.
+
+   * An option to change the duration of keep/deletion feedback, defaulting to 300 ms.
+
+   * A range control for video preview speed with 1x, 1.5x, and 2x options.
+
+8. **Mid-Review Preview:** Implemented a review screen accessible before the project is finished. Users can delete currently marked files, then resume at the same file. Successful deletions update progress, the folder is rescanned, and failed deletions remain marked for retry.
 
 ## Phase 8: Post-MVP - FFmpeg Integration (.mkv & .avi support)
 

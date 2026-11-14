@@ -30,7 +30,9 @@ export async function scanMediaFiles(folderPath: string): Promise<string[]> {
       }
 
       if (entry.isDirectory) {
-        await scanDirectory(await join(directoryPath, entry.name));
+        if (!entry.name.startsWith(".")) {
+          await scanDirectory(await join(directoryPath, entry.name));
+        }
       } else if (entry.isFile) {
         const extension = entry.name.slice(entry.name.lastIndexOf(".") + 1);
         if (supportedExtensions.has(extension.toLowerCase())) {

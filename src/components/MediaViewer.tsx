@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { stat } from "@tauri-apps/plugin-fs";
 import { formatBytes, formatDate, getFileName } from "../lib/formatters";
@@ -9,6 +9,7 @@ interface MediaViewerProps {
   project: Project;
   mediaFiles: string[];
   onBack: () => void;
+  onPreview: () => void;
 }
 
 interface FileMetadata {
@@ -51,11 +52,46 @@ function undoLastDecision(projectId: string, mediaFiles: string[]): void {
   }
 }
 
-function MediaViewer({ project, mediaFiles, onBack }: MediaViewerProps) {
+function MediaViewer({ project, mediaFiles, onBack, onPreview }: MediaViewerProps) {
   const currentFilePath = mediaFiles[project.currentIndex] ?? null;
+  const preferences = useProjectStore((state) => state.preferences);
   const [metadata, setMetadata] = useState<FileMetadata | null>(null);
   const [metadataLoading, setMetadataLoading] = useState(false);
   const [metadataError, setMetadataError] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<{
+    markForDeletion: boolean;
+    sliding: boolean;
+  } | null>(null);
+  const pendingDecision = useRef<boolean | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (timer.current !== null) clearTimeout(timer.current);
+  }, []);
+
+  function startDecision(markForDeletion: boolean) {
+    if (pendingDecision.current !== null || !currentFilePath) return;
+    pendingDecision.current = markForDeletion;
+    setFeedback({ markForDeletion, sliding: false });
+    timer.current = setTimeout(() => {
+      setFeedback({ markForDeletion, sliding: true });
+      timer.current = setTimeout(() => {
+        pendingDecision.current = null;
+        timer.current = null;
+        decideCurrentFile(project.id, mediaFiles, markForDeletion);
+        setFeedback(null);
+      }, 180);
+    }, preferences.feedbackDurationMs);
+  }
+
+  function stopReview() {
+    if (timer.current !== null) clearTimeout(timer.current);
+    if (pendingDecision.current !== null) {
+      decideCurrentFile(project.id, mediaFiles, pendingDecision.current);
+      pendingDecision.current = null;
+    }
+    onBack();
+  }
 
   useEffect(() => {
     if (!currentFilePath) {
@@ -125,16 +161,17 @@ function MediaViewer({ project, mediaFiles, onBack }: MediaViewerProps) {
       }
       event.preventDefault();
 
+      if (pendingDecision.current !== null) return;
       if (event.key === "ArrowUp") {
         undoLastDecision(project.id, mediaFiles);
       } else {
-        decideCurrentFile(project.id, mediaFiles, event.key === "ArrowLeft");
+        startDecision(event.key === "ArrowLeft");
       }
     }
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [mediaFiles, project.id]);
+  }, [mediaFiles, project.id, currentFilePath, preferences.feedbackDurationMs]);
 
   const progress =
     mediaFiles.length > 0
@@ -157,10 +194,10 @@ function MediaViewer({ project, mediaFiles, onBack }: MediaViewerProps) {
           <div className="flex min-w-0 items-center gap-4">
             <button
               type="button"
-              onClick={onBack}
+              onClick={stopReview}
               className="rounded-full border border-white/10 px-4 py-2 text-sm font-medium text-stone-300 transition hover:border-white/20 hover:text-white"
             >
-              All projects
+              Stop review
             </button>
             <div className="min-w-0">
               <p className="truncate text-sm font-semibold text-stone-100">
@@ -214,26 +251,51 @@ function MediaViewer({ project, mediaFiles, onBack }: MediaViewerProps) {
             <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_19rem]">
               <section
                 aria-label="Media preview"
-                className="flex min-h-[55vh] items-center justify-center overflow-hidden rounded-[1.75rem] border border-white/8 bg-black/50 p-3 sm:min-h-[65vh] sm:p-5"
+                className={`decision-card relative flex min-h-[55vh] items-center justify-center overflow-hidden rounded-[1.75rem] border border-white/8 bg-black/50 p-3 sm:min-h-[65vh] sm:p-5 ${
+                  feedback?.sliding ? (feedback.markForDeletion ? "slide-left" : "slide-right") : ""
+                }`}
               >
-                {isVideo ? (
-                  <video
-                    key={currentFilePath}
-                    src={convertFileSrc(currentFilePath)}
-                    controls
-                    autoPlay
-                    muted
-                    loop
-                    playsInline
-                    className="max-h-[72vh] max-w-full rounded-xl object-contain"
-                  />
-                ) : (
-                  <img
-                    key={currentFilePath}
-                    src={convertFileSrc(currentFilePath)}
-                    alt={metadata?.name ?? getFileName(currentFilePath)}
-                    className="max-h-[72vh] max-w-full rounded-xl object-contain"
-                  />
+                <div className="relative flex min-w-0 max-w-full items-center justify-center overflow-hidden rounded-xl">
+                  {isVideo ? (
+                    <video
+                      key={currentFilePath}
+                      src={convertFileSrc(currentFilePath)}
+                      controls
+                      autoPlay={preferences.autoplayVideo}
+                      muted
+                      loop
+                      playsInline
+                      ref={(video) => {
+                        if (video) {
+                          video.defaultPlaybackRate = preferences.videoPlaybackRate;
+                          video.playbackRate = preferences.videoPlaybackRate;
+                        }
+                      }}
+                      onLoadedMetadata={(event) => {
+                        event.currentTarget.playbackRate = preferences.videoPlaybackRate;
+                      }}
+                      className="max-h-[72vh] max-w-full rounded-xl object-contain"
+                    />
+                  ) : (
+                    <img
+                      key={currentFilePath}
+                      src={convertFileSrc(currentFilePath)}
+                      alt={metadata?.name ?? getFileName(currentFilePath)}
+                      className="max-h-[72vh] max-w-full rounded-xl object-contain"
+                    />
+                  )}
+                  {feedback && (
+                    <div
+                      aria-hidden="true"
+                      className={`decision-glow ${feedback.markForDeletion ? "decision-glow-delete" : "decision-glow-keep"}`}
+                      style={{ animationDuration: `${preferences.feedbackDurationMs}ms` }}
+                    />
+                  )}
+                </div>
+                {feedback && (
+                  <p role="status" className="absolute bottom-8 rounded-full bg-black/80 px-5 py-2 text-sm font-semibold text-white">
+                    {feedback.markForDeletion ? "Marked for deletion" : "Keep"}
+                  </p>
                 )}
               </section>
 
@@ -290,8 +352,16 @@ function MediaViewer({ project, mediaFiles, onBack }: MediaViewerProps) {
                   </p>
                   <button
                     type="button"
+                    onClick={onPreview}
+                    disabled={feedback !== null}
+                    className="mt-4 w-full rounded-xl bg-emerald-200 px-4 py-2.5 text-sm font-medium text-emerald-950 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Review marked files
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => undoLastDecision(project.id, mediaFiles)}
-                    disabled={project.currentIndex === 0}
+                    disabled={project.currentIndex === 0 || feedback !== null}
                     className="mt-4 w-full rounded-xl border border-white/10 px-4 py-2.5 text-sm font-medium text-stone-300 transition hover:bg-white/[0.04] disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     Undo last decision <span className="text-stone-500">(↑)</span>
@@ -304,18 +374,20 @@ function MediaViewer({ project, mediaFiles, onBack }: MediaViewerProps) {
               <button
                 type="button"
                 onClick={() =>
-                  decideCurrentFile(project.id, mediaFiles, true)
+                  startDecision(true)
                 }
-                className="min-w-44 rounded-full border border-rose-200/20 bg-rose-200/[0.06] px-6 py-3.5 text-sm font-semibold text-rose-100 transition hover:border-rose-200/40 hover:bg-rose-200/[0.1]"
+                disabled={feedback !== null}
+                className="min-w-44 rounded-full border border-rose-200/20 bg-rose-200/[0.06] px-6 py-3.5 text-sm font-semibold text-rose-100 transition hover:border-rose-200/40 hover:bg-rose-200/[0.1] disabled:opacity-50"
               >
                 Mark to delete <span className="ml-1 text-rose-100/60">←</span>
               </button>
               <button
                 type="button"
                 onClick={() =>
-                  decideCurrentFile(project.id, mediaFiles, false)
+                  startDecision(false)
                 }
-                className="min-w-44 rounded-full bg-emerald-200 px-6 py-3.5 text-sm font-semibold text-emerald-950 transition hover:bg-emerald-100"
+                disabled={feedback !== null}
+                className="min-w-44 rounded-full bg-emerald-200 px-6 py-3.5 text-sm font-semibold text-emerald-950 transition hover:bg-emerald-100 disabled:opacity-50"
               >
                 Keep <span className="ml-1 text-emerald-950/60">→</span>
               </button>

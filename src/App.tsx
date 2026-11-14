@@ -1,7 +1,8 @@
 import { useRef, useState } from "react";
 import { basename } from "@tauri-apps/api/path";
-import { open } from "@tauri-apps/plugin-dialog";
+import { ask, open } from "@tauri-apps/plugin-dialog";
 import MediaViewer from "./components/MediaViewer";
+import PreferencesSection from "./components/PreferencesSection";
 import ReviewSummary from "./components/ReviewSummary";
 import { scanMediaFiles } from "./lib/mediaScanner";
 import { useProjectStore } from "./store/useProjectStore";
@@ -18,6 +19,7 @@ function App() {
   const activeProjectId = useProjectStore((state) => state.activeProjectId);
   const createProject = useProjectStore((state) => state.createProject);
   const setActiveProject = useProjectStore((state) => state.setActiveProject);
+  const deleteProject = useProjectStore((state) => state.deleteProject);
   const updateProjectTotalFiles = useProjectStore(
     (state) => state.updateProjectTotalFiles,
   );
@@ -26,7 +28,9 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [openedProjectId, setOpenedProjectId] = useState<string | null>(null);
   const [scanState, setScanState] = useState<ProjectScanState | null>(null);
+  const [isPreviewing, setIsPreviewing] = useState(false);
   const scanSequence = useRef(0);
+  const scannedFiles = useRef<string[]>([]);
 
   const openedProject = projects.find(
     (project) => project.id === openedProjectId,
@@ -50,6 +54,7 @@ function App() {
       }
 
       updateProjectTotalFiles(project.id, mediaPaths.length);
+      scannedFiles.current = mediaPaths;
       setScanState({
         projectId: project.id,
         status: "complete",
@@ -114,6 +119,59 @@ function App() {
     void scanProject(project);
   }
 
+  function closeProject() {
+    scanSequence.current += 1;
+    setIsPreviewing(false);
+    setActiveProject(null);
+    setOpenedProjectId(null);
+  }
+
+  function recordDeletedFile(projectId: string, path: string) {
+    const removedIndex = scannedFiles.current.indexOf(path);
+    if (removedIndex !== -1) {
+      scannedFiles.current = scannedFiles.current.filter((item) => item !== path);
+    }
+    useProjectStore.getState().recordDeletedFile(
+      projectId,
+      path,
+      removedIndex,
+      scannedFiles.current.length,
+    );
+    setScanState({ projectId, status: "complete", mediaPaths: scannedFiles.current });
+  }
+
+  async function refreshPreview(project: Project): Promise<void> {
+    const currentProject = useProjectStore.getState().projects.find((item) => item.id === project.id);
+    const currentPath = currentProject && scannedFiles.current[currentProject.currentIndex];
+    if (!currentPath) {
+      throw new Error("The current file is no longer available. Return to the project list and reopen the project.");
+    }
+    const mediaPaths = await scanMediaFiles(project.targetFolder);
+    const currentIndex = mediaPaths.indexOf(currentPath);
+    if (currentIndex === -1) {
+      throw new Error(`The file you were viewing is no longer available: "${currentPath}".`);
+    }
+    scannedFiles.current = mediaPaths;
+    useProjectStore.getState().updateProjectScan(project.id, mediaPaths.length, currentIndex);
+    setScanState({ projectId: project.id, status: "complete", mediaPaths });
+  }
+
+  async function handleDeleteProject(project: Project) {
+    setError(null);
+    try {
+      const confirmed = await ask(
+        `Remove "${project.name}" and its review progress? Your media files will not be deleted.`,
+        { title: "Delete project", kind: "warning", okLabel: "Delete project", cancelLabel: "Cancel" },
+      );
+      if (confirmed) {
+        deleteProject(project.id);
+      }
+    } catch (error) {
+      console.error(`Failed to confirm deletion of project "${project.name}".`, error);
+      setError(error instanceof Error ? error.message : String(error));
+    }
+  }
+
   async function handleRestoreFolderAccess(project: Project) {
     setIsAuthorizing(true);
     try {
@@ -147,11 +205,17 @@ function App() {
   }
 
   if (openedProject && openedProjectScan?.status === "complete") {
-    if (openedProject.currentIndex >= openedProjectScan.mediaPaths.length) {
+    const reviewComplete = openedProject.currentIndex >= openedProjectScan.mediaPaths.length;
+    if (isPreviewing || reviewComplete) {
       return (
         <ReviewSummary
           project={openedProject}
-          onFinish={() => setOpenedProjectId(null)}
+          mode={isPreviewing ? "intermediate" : "final"}
+          currentFile={isPreviewing ? openedProjectScan.mediaPaths[openedProject.currentIndex] : undefined}
+          onFileDeleted={(path) => recordDeletedFile(openedProject.id, path)}
+          onRefresh={() => refreshPreview(openedProject)}
+          onResume={() => setIsPreviewing(false)}
+          onFinish={closeProject}
         />
       );
     }
@@ -160,7 +224,8 @@ function App() {
       <MediaViewer
         project={openedProject}
         mediaFiles={openedProjectScan.mediaPaths}
-        onBack={() => setOpenedProjectId(null)}
+        onBack={closeProject}
+        onPreview={() => setIsPreviewing(true)}
       />
     );
   }
@@ -172,7 +237,7 @@ function App() {
           <button
             type="button"
             className="mb-12 inline-flex items-center gap-2 text-sm font-medium text-stone-400 transition hover:text-white"
-            onClick={() => setOpenedProjectId(null)}
+            onClick={closeProject}
           >
             <span aria-hidden="true">←</span>
             All projects
@@ -264,7 +329,7 @@ function App() {
             </div>
             <button
               type="button"
-              onClick={() => setOpenedProjectId(null)}
+              onClick={closeProject}
               className="mt-8 rounded-full bg-emerald-200 px-5 py-3 text-sm font-semibold text-emerald-950 transition hover:bg-emerald-100"
             >
               Back to projects
@@ -314,8 +379,7 @@ function App() {
             </h1>
             <p className="mt-6 max-w-xl text-base leading-7 text-stone-400 sm:text-lg sm:leading-8">
               Review one photo or video at a time. Keep what matters, mark what
-              doesn&apos;t, and decide what to delete only after your final
-              review.
+              doesn&apos;t, and delete only after confirming your review.
             </p>
             <button
               type="button"
@@ -496,12 +560,15 @@ function App() {
                 const isActive = project.id === activeProjectId;
 
                 return (
-                  <button
+                  <div
                     key={project.id}
+                    className="group rounded-[1.5rem] border border-white/8 bg-[#121918] p-5 transition hover:border-emerald-200/25 hover:bg-[#151e1b] sm:p-6"
+                  >
+                  <button
                     type="button"
                     onClick={() => handleOpenProject(project)}
                     aria-label={`Open ${project.name}, ${progress}% reviewed`}
-                    className="group rounded-[1.5rem] border border-white/8 bg-[#121918] p-5 text-left transition hover:-translate-y-0.5 hover:border-emerald-200/25 hover:bg-[#151e1b] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-200 sm:p-6"
+                    className="w-full text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-200"
                   >
                     <div className="flex items-start justify-between gap-4">
                       <div className="flex min-w-0 items-center gap-3.5">
@@ -580,6 +647,15 @@ function App() {
                       </span>
                     </div>
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleDeleteProject(project)}
+                    aria-label={`Delete project ${project.name}`}
+                    className="mt-4 rounded-lg text-xs font-medium text-rose-200/75 hover:text-rose-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-200"
+                  >
+                    Delete project
+                  </button>
+                  </div>
                 );
               })}
             </div>
@@ -601,6 +677,7 @@ function App() {
             </div>
           )}
         </section>
+        <PreferencesSection />
       </main>
 
       <footer className="relative border-t border-white/[0.06] px-6 py-5 text-center text-xs text-stone-600">

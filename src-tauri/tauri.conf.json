@@ -21,8 +21,16 @@
       "csp": null,
       "assetProtocol": {
         "enable": true,
-        "scope": []
+        "scope": {
+          "allow": [],
+          "requireLiteralLeadingDot": false
+        }
       }
+    }
+  },
+  "plugins": {
+    "fs": {
+      "requireLiteralLeadingDot": false
     }
   },
   "bundle": {

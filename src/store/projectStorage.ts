@@ -1,3 +1,4 @@
+import { isTauri } from "@tauri-apps/api/core";
 import { appDataDir, join } from "@tauri-apps/api/path";
 import {
   exists,
@@ -5,12 +6,13 @@ import {
   readTextFile,
   writeTextFile,
 } from "@tauri-apps/plugin-fs";
-import type { Project } from "../types";
-import { useProjectStore } from "./useProjectStore";
+import type { Preferences, Project } from "../types";
+import { defaultPreferences, useProjectStore } from "./useProjectStore";
 
 interface PersistedProjectState {
   projects: Project[];
   activeProjectId: string | null;
+  preferences: Preferences;
 }
 
 let initialization: Promise<void> | undefined;
@@ -66,9 +68,30 @@ function parseProjectState(contents: string): PersistedProjectState {
     throw new Error("Stored active project does not exist in the project list.");
   }
 
+  const preferences =
+    value.preferences === undefined ? defaultPreferences : value.preferences;
+  if (
+    !isRecord(preferences) ||
+    typeof preferences.autoplayVideo !== "boolean" ||
+    typeof preferences.feedbackDurationMs !== "number" ||
+    !Number.isSafeInteger(preferences.feedbackDurationMs) ||
+    preferences.feedbackDurationMs < 0 ||
+    preferences.feedbackDurationMs > 2147483647 ||
+    (preferences.videoPlaybackRate !== 1 &&
+      preferences.videoPlaybackRate !== 1.5 &&
+      preferences.videoPlaybackRate !== 2)
+  ) {
+    throw new Error("Stored preferences have an invalid format.");
+  }
+
   return {
     projects,
     activeProjectId: value.activeProjectId,
+    preferences: {
+      autoplayVideo: preferences.autoplayVideo,
+      feedbackDurationMs: preferences.feedbackDurationMs,
+      videoPlaybackRate: preferences.videoPlaybackRate,
+    },
   };
 }
 
@@ -111,12 +134,18 @@ function scheduleProjectStateSave(
 }
 
 async function initialize(): Promise<void> {
+  if (!isTauri()) {
+    throw new Error(
+      "SwipeClean requires the Tauri desktop runtime to access project files. Start it with `npm run tauri dev` instead of `npm run dev`.",
+    );
+  }
+
   const dataDirectory = await appDataDir();
   await mkdir(dataDirectory, { recursive: true });
   const filePath = await join(dataDirectory, "projects.json");
   const storedState = (await exists(filePath))
     ? parseProjectState(await readTextFile(filePath))
-    : { projects: [], activeProjectId: null };
+    : { projects: [], activeProjectId: null, preferences: defaultPreferences };
 
   useProjectStore.setState(storedState);
 
@@ -124,7 +153,8 @@ async function initialize(): Promise<void> {
   useProjectStore.subscribe((state) => {
     if (
       state.projects === previousState.projects &&
-      state.activeProjectId === previousState.activeProjectId
+      state.activeProjectId === previousState.activeProjectId &&
+      state.preferences === previousState.preferences
     ) {
       return;
     }
@@ -133,6 +163,7 @@ async function initialize(): Promise<void> {
     scheduleProjectStateSave(filePath, {
       projects: state.projects,
       activeProjectId: state.activeProjectId,
+      preferences: state.preferences,
     });
   });
 }

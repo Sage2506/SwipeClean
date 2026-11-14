@@ -7,3 +7,9 @@ export interface Project {
   markedForDeletion: string[];
   lastAccessed: number;
 }
+
+export interface Preferences {
+  autoplayVideo: boolean;
+  feedbackDurationMs: number;
+  videoPlaybackRate: 1 | 1.5 | 2;
+}

@@ -6,6 +6,11 @@ import type { Project } from "../types";
 
 interface ReviewSummaryProps {
   project: Project;
+  mode: "intermediate" | "final";
+  currentFile?: string;
+  onFileDeleted: (path: string) => void;
+  onRefresh: () => Promise<void>;
+  onResume: () => void;
   onFinish: () => void;
 }
 
@@ -27,19 +32,20 @@ interface DeletionResult {
 }
 
 function getErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "An unexpected error occurred.";
+  return error instanceof Error ? error.message : String(error);
 }
 
-function ReviewSummary({ project, onFinish }: ReviewSummaryProps) {
+function ReviewSummary({ project, mode, currentFile, onFileDeleted, onRefresh, onResume, onFinish }: ReviewSummaryProps) {
   const deleteProject = useProjectStore((state) => state.deleteProject);
-  const unmarkFileForDeletion = useProjectStore(
-    (state) => state.unmarkFileForDeletion,
-  );
   const [fileSummaries, setFileSummaries] = useState<FileSummary[]>([]);
   const [metadataLoading, setMetadataLoading] = useState(false);
   const [confirmationName, setConfirmationName] = useState("");
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteProgress, setDeleteProgress] = useState<number | null>(null);
+  const [deleteTotal, setDeleteTotal] = useState(0);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [operationError, setOperationError] = useState<string | null>(null);
   const [deletionResult, setDeletionResult] =
     useState<DeletionResult | null>(null);
 
@@ -90,7 +96,22 @@ function ReviewSummary({ project, onFinish }: ReviewSummaryProps) {
   const canDelete =
     confirmationName === project.name &&
     !metadataLoading &&
-    !isDeleting;
+    !isDeleting &&
+    !isRefreshing &&
+    refreshError === null;
+
+  async function refreshFiles() {
+    setIsRefreshing(true);
+    try {
+      await onRefresh();
+      setRefreshError(null);
+    } catch (error) {
+      console.error("Failed to refresh the project after deletion.", error);
+      setRefreshError(getErrorMessage(error));
+    } finally {
+      setIsRefreshing(false);
+    }
+  }
 
   async function handleFinishReview() {
     if (!canDelete) {
@@ -98,14 +119,22 @@ function ReviewSummary({ project, onFinish }: ReviewSummaryProps) {
     }
 
     const markedPaths = [...project.markedForDeletion];
+    setOperationError(null);
+    if (mode === "intermediate" && (!currentFile || markedPaths.includes(currentFile))) {
+      setOperationError("The file you were viewing is marked for deletion or unavailable. Resume the review and check your decisions before deleting.");
+      return;
+    }
     if (markedPaths.length === 0) {
-      deleteProject(project.id);
-      onFinish();
+      if (mode === "final") {
+        deleteProject(project.id);
+        onFinish();
+      }
       return;
     }
 
     setIsDeleting(true);
     setDeleteProgress(0);
+    setDeleteTotal(markedPaths.length);
     setDeletionResult(null);
     const failures: DeletionFailure[] = [];
     let deleted = 0;
@@ -115,22 +144,26 @@ function ReviewSummary({ project, onFinish }: ReviewSummaryProps) {
         setDeleteProgress(index + 1);
         try {
           await remove(path);
-          unmarkFileForDeletion(project.id, path);
-          deleted += 1;
         } catch (error) {
           const message = getErrorMessage(error);
           console.error(`Failed to delete "${path}".`, error);
           failures.push({ path, message });
+          continue;
         }
+        onFileDeleted(path);
+        deleted += 1;
       }
 
-      if (failures.length === 0) {
+      if (mode === "final" && failures.length === 0) {
         deleteProject(project.id);
         onFinish();
         return;
       }
 
       setDeletionResult({ deleted, failures });
+      if (mode === "intermediate" && deleted > 0) {
+        await refreshFiles();
+      }
     } finally {
       setIsDeleting(false);
       setDeleteProgress(null);
@@ -145,7 +178,7 @@ function ReviewSummary({ project, onFinish }: ReviewSummaryProps) {
             <button
               type="button"
               onClick={onFinish}
-              disabled={isDeleting}
+              disabled={isDeleting || isRefreshing}
               className="rounded-full border border-white/10 px-4 py-2 text-sm font-medium text-stone-300 transition hover:border-white/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
             >
               All projects
@@ -159,12 +192,14 @@ function ReviewSummary({ project, onFinish }: ReviewSummaryProps) {
               </p>
             </div>
           </div>
-          <p className="text-sm font-medium text-emerald-200">Review complete</p>
+          <p className="text-sm font-medium text-emerald-200">
+            {mode === "final" ? "Review complete" : "Review in progress"}
+          </p>
         </header>
 
         <section className="rounded-[2rem] border border-white/8 bg-[#121918] p-5 shadow-2xl shadow-black/20 sm:p-8">
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-200">
-            Final review
+            {mode === "final" ? "Final review" : "Review marked files"}
           </p>
           <h1 className="mt-3 text-3xl font-semibold tracking-tight">
             Confirm what to remove
@@ -259,17 +294,21 @@ function ReviewSummary({ project, onFinish }: ReviewSummaryProps) {
 
           {deletionResult && (
             <div
-              role="alert"
+              role={deletionResult.failures.length > 0 ? "alert" : "status"}
               className="mt-6 rounded-2xl border border-amber-200/20 bg-amber-200/[0.06] p-5"
             >
               <p className="font-semibold text-amber-100">
                 {deletionResult.deleted} file
-                {deletionResult.deleted === 1 ? "" : "s"} deleted;{" "}
-                {deletionResult.failures.length} could not be deleted.
+                {deletionResult.deleted === 1 ? "" : "s"} deleted
+                {deletionResult.failures.length > 0
+                  ? `; ${deletionResult.failures.length} could not be deleted.`
+                  : "."}
               </p>
-              <p className="mt-1 text-sm leading-6 text-amber-100/75">
-                Files that could not be deleted remain marked and can be retried.
-              </p>
+              {deletionResult.failures.length > 0 && (
+                <p className="mt-1 text-sm leading-6 text-amber-100/75">
+                  Files that could not be deleted remain marked and can be retried.
+                </p>
+              )}
               <ul className="mt-3 space-y-3">
                 {deletionResult.failures.map((failure) => (
                   <li key={failure.path} className="break-all text-sm text-amber-100">
@@ -283,6 +322,24 @@ function ReviewSummary({ project, onFinish }: ReviewSummaryProps) {
             </div>
           )}
 
+          {operationError && (
+            <p role="alert" className="mt-6 text-sm text-rose-200">{operationError}</p>
+          )}
+          {refreshError && (
+            <div role="alert" className="mt-6 text-sm text-rose-200">
+              <p>Could not refresh the folder: {refreshError}</p>
+              <button
+                type="button"
+                onClick={() => void refreshFiles()}
+                disabled={isDeleting || isRefreshing}
+                className="mt-3 rounded-xl border border-rose-200/30 px-4 py-2 disabled:opacity-40"
+              >
+                Retry refresh
+              </button>
+            </div>
+          )}
+
+          {(mode === "final" || project.markedForDeletion.length > 0) && (
           <div className="mt-7 grid gap-4 rounded-2xl border border-rose-200/15 bg-rose-200/[0.04] p-5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
             <label className="block">
               <span className="text-sm font-medium text-stone-200">
@@ -294,7 +351,7 @@ function ReviewSummary({ project, onFinish }: ReviewSummaryProps) {
                 onChange={(event) => setConfirmationName(event.target.value)}
                 autoComplete="off"
                 spellCheck={false}
-                disabled={isDeleting}
+                disabled={isDeleting || isRefreshing}
                 aria-describedby="delete-confirmation-help"
                 className="mt-3 w-full rounded-xl border border-white/12 bg-black/20 px-4 py-3 text-sm text-white outline-none transition placeholder:text-stone-600 focus:border-emerald-200/60 disabled:opacity-60"
                 placeholder="Project name"
@@ -310,12 +367,23 @@ function ReviewSummary({ project, onFinish }: ReviewSummaryProps) {
               className="rounded-full bg-rose-200 px-6 py-3 text-sm font-semibold text-rose-950 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-40"
             >
               {isDeleting
-                ? `Deleting ${deleteProgress ?? 0} of ${project.markedForDeletion.length}…`
+                ? `Deleting ${deleteProgress ?? 0} of ${deleteTotal}…`
                 : project.markedForDeletion.length > 0
                   ? "Delete Forever"
                   : "Finish Review"}
             </button>
           </div>
+          )}
+          {mode === "intermediate" && (
+            <button
+              type="button"
+              onClick={onResume}
+              disabled={isDeleting || isRefreshing || refreshError !== null}
+              className="mt-6 rounded-full bg-emerald-200 px-6 py-3 text-sm font-semibold text-emerald-950 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {isRefreshing ? "Refreshing folder…" : "Resume review"}
+            </button>
+          )}
         </section>
       </div>
     </main>
