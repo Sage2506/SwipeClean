@@ -9,6 +9,7 @@ interface ProjectStore {
   updateProjectTotalFiles: (projectId: string, totalFiles: number) => void;
   updateProjectProgress: (projectId: string, currentIndex: number) => void;
   markFileForDeletion: (projectId: string, filePath: string) => void;
+  undoLastDecision: (projectId: string, filePath: string) => void;
   deleteProject: (projectId: string) => void;
 }
 
@@ -38,7 +39,9 @@ export const useProjectStore = create<ProjectStore>((set) => ({
   updateProjectProgress: (projectId, currentIndex) =>
     set((state) => ({
       projects: state.projects.map((project) =>
-        project.id === projectId ? { ...project, currentIndex } : project,
+        project.id === projectId
+          ? { ...project, currentIndex, lastAccessed: Date.now() }
+          : project,
       ),
     })),
   markFileForDeletion: (projectId, filePath) =>
@@ -49,6 +52,21 @@ export const useProjectStore = create<ProjectStore>((set) => ({
           ? {
               ...project,
               markedForDeletion: [...project.markedForDeletion, filePath],
+            }
+          : project,
+      ),
+    })),
+  undoLastDecision: (projectId, filePath) =>
+    set((state) => ({
+      projects: state.projects.map((project) =>
+        project.id === projectId && project.currentIndex > 0
+          ? {
+              ...project,
+              currentIndex: project.currentIndex - 1,
+              markedForDeletion: project.markedForDeletion.filter(
+                (markedPath) => markedPath !== filePath,
+              ),
+              lastAccessed: Date.now(),
             }
           : project,
       ),

@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { basename } from "@tauri-apps/api/path";
 import { open } from "@tauri-apps/plugin-dialog";
+import MediaViewer from "./components/MediaViewer";
 import { scanMediaFiles } from "./lib/mediaScanner";
 import { useProjectStore } from "./store/useProjectStore";
 import type { Project } from "./types";
@@ -8,7 +9,7 @@ import "./App.css";
 
 type ProjectScanState =
   | { projectId: string; status: "scanning" }
-  | { projectId: string; status: "complete"; fileCount: number }
+  | { projectId: string; status: "complete"; mediaPaths: string[] }
   | { projectId: string; status: "error"; message: string };
 
 function App() {
@@ -51,7 +52,7 @@ function App() {
       setScanState({
         projectId: project.id,
         status: "complete",
-        fileCount: mediaPaths.length,
+        mediaPaths,
       });
     } catch (error) {
       const message =
@@ -144,6 +145,16 @@ function App() {
     }
   }
 
+  if (openedProject && openedProjectScan?.status === "complete") {
+    return (
+      <MediaViewer
+        project={openedProject}
+        mediaFiles={openedProjectScan.mediaPaths}
+        onBack={() => setOpenedProjectId(null)}
+      />
+    );
+  }
+
   if (openedProject) {
     return (
       <main className="min-h-screen bg-[#0b100f] px-6 py-8 text-stone-100">
@@ -198,22 +209,6 @@ function App() {
                     <p className="mt-2 text-sm leading-6 text-stone-400">
                       Looking through its subfolders for supported photos and
                       videos.
-                    </p>
-                  </>
-                )}
-                {openedProjectScan?.status === "complete" && (
-                  <>
-                    <p className="font-medium text-stone-200">
-                      {openedProjectScan.fileCount === 0
-                        ? "No supported media found."
-                        : `Found ${openedProjectScan.fileCount.toLocaleString()} supported media files.`}
-                    </p>
-                    <p className="mt-2 text-sm leading-6 text-stone-400">
-                      {openedProject.totalFiles > 0
-                        ? `${Math.min(openedProject.currentIndex, openedProject.totalFiles).toLocaleString()} files reviewed so far. `
-                        : ""}
-                      Results are sorted by path. Your files have not been
-                      changed.
                     </p>
                   </>
                 )}

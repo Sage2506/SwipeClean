@@ -16,6 +16,9 @@ interface PersistedProjectState {
 let initialization: Promise<void> | undefined;
 let pendingWrite: string | null = null;
 let writeInProgress = false;
+let saveTimer: ReturnType<typeof setTimeout> | null = null;
+
+const saveDebounceMilliseconds = 250;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -87,10 +90,24 @@ async function writePendingState(filePath: string): Promise<void> {
     }
   } finally {
     writeInProgress = false;
-    if (pendingWrite !== null) {
+    if (pendingWrite !== null && saveTimer === null) {
       void writePendingState(filePath);
     }
   }
+}
+
+function scheduleProjectStateSave(
+  filePath: string,
+  state: PersistedProjectState,
+): void {
+  pendingWrite = JSON.stringify(state, null, 2);
+  if (saveTimer !== null) {
+    clearTimeout(saveTimer);
+  }
+  saveTimer = setTimeout(() => {
+    saveTimer = null;
+    void writePendingState(filePath);
+  }, saveDebounceMilliseconds);
 }
 
 async function initialize(): Promise<void> {
@@ -113,15 +130,10 @@ async function initialize(): Promise<void> {
     }
 
     previousState = state;
-    pendingWrite = JSON.stringify(
-      {
-        projects: state.projects,
-        activeProjectId: state.activeProjectId,
-      },
-      null,
-      2,
-    );
-    void writePendingState(filePath);
+    scheduleProjectStateSave(filePath, {
+      projects: state.projects,
+      activeProjectId: state.activeProjectId,
+    });
   });
 }
 

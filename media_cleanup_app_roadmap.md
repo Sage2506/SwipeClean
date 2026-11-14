@@ -107,27 +107,29 @@
 
 1. **UI Layout:**
 
-   * Main central area for the media (`<img>` or `<video controls autoPlay loop>`).
+   * Implemented in `src/components/MediaViewer.tsx`: a central media area (`<img>` or `<video controls autoPlay loop>`) with a file-details sidebar.
 
-   * Sidebar or overlay for file metadata (Name, Size, Path, Date).
+   * Show the file name, size, path, and creation date; report unavailable metadata instead of hiding file access errors.
 
-   * Status bar showing progress (e.g., "File 45 of 1500").
+   * Show review progress (e.g., "File 45 of 1500") and keep deletion deferred until the summary phase.
 
 2. **Tauri Asset Protocol:**
 
-   * *Crucial Step:* Browsers block local file access (`file://`). Use Tauri's `convertFileSrc` from `@tauri-apps/api/core` to convert absolute file paths into custom protocol URLs (e.g., `asset://localhost/C:/...`) so React can render them.
+   * Use `convertFileSrc` from `@tauri-apps/api/core` to convert absolute file paths into custom protocol URLs so React can render them.
 
 3. **Keyboard Listeners:**
 
-   * Attach a `useEffect` for `keydown`.
+   * Attach and clean up a `keydown` listener in `useEffect`.
 
    * **ArrowLeft:** Add current file to `markedForDeletion`, increment `currentIndex`.
 
    * **ArrowRight:** Just increment `currentIndex`.
 
-   * **ArrowUp (Optional):** Undo (decrement index, remove from marked list).
+   * **ArrowUp:** Undo (decrement index and remove the previous file from `markedForDeletion` if needed).
 
 4. **Auto-Save:** Ensure every keystroke/index change triggers a debounced save to `projects.json`.
+
+   * The Zustand subscription persists the latest state with a 250 ms debounce.
 
 ## Phase 6: Summary and Execution View
 
